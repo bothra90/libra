@@ -16,12 +16,16 @@ use crate::{
     },
     util::mock_time_service::SimulatedTimeService,
 };
+use channel::{self, libra_channel, message_queues::QueueStyle};
 use consensus_types::proposal_msg::{ProposalMsg, ProposalUncheckedSignatures};
 use futures::{channel::mpsc, executor::block_on};
 use lazy_static::lazy_static;
 use libra_prost_ext::MessageExt;
 use libra_types::crypto_proxies::{LedgerInfoWithSignatures, ValidatorSigner, ValidatorVerifier};
-use network::{proto::Proposal, validator_network::ConsensusNetworkSender};
+use network::{
+    peer_manager::PeerManagerRequestSender, proto::Proposal,
+    validator_network::ConsensusNetworkSender,
+};
 use prost::Message as _;
 use safety_rules::{InMemoryStorage, SafetyRules};
 use std::convert::TryFrom;
@@ -96,8 +100,12 @@ fn create_node_for_fuzzing() -> EventProcessor<TestPayload> {
         SafetyRules::new(InMemoryStorage::default_storage(), Arc::new(signer.clone()));
 
     // TODO: mock channels
-    let (network_reqs_tx, _network_reqs_rx) = channel::new_test(8);
-    let network_sender = ConsensusNetworkSender::new(network_reqs_tx);
+    let (network_reqs_tx, _network_reqs_rx) = libra_channel::new(QueueStyle::FIFO, 8, None);
+    let (conn_mgr_reqs_tx, _conn_mgr_reqs_rx) = channel::new_test(8);
+    let network_sender = ConsensusNetworkSender::new(
+        PeerManagerRequestSender::new(network_reqs_tx),
+        conn_mgr_reqs_tx,
+    );
     let (self_sender, _self_receiver) = channel::new_test(8);
     let network = NetworkSender::new(
         signer.author(),

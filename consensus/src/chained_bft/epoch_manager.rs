@@ -137,7 +137,7 @@ impl<T: Payload> EpochManager<T> {
         let msg = ConsensusMsg {
             message: Some(ConsensusMsg_oneof::EpochChange(proof.into())),
         };
-        if let Err(e) = self.network_sender.send_to(peer_id, msg).await {
+        if let Err(e) = self.network_sender.send_to(peer_id, msg) {
             warn!(
                 "Failed to send a epoch retrieval to peer {}: {:?}",
                 peer_id, e
@@ -173,7 +173,7 @@ impl<T: Payload> EpochManager<T> {
                         return;
                     }
                 };
-                if let Err(e) = self.network_sender.send_to(peer_id, msg).await {
+                if let Err(e) = self.network_sender.send_to(peer_id, msg) {
                     warn!(
                         "Failed to send a epoch retrieval to peer {}: {:?}",
                         peer_id, e

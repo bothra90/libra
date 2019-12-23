@@ -4,11 +4,13 @@
 use crate::{mocks::local_mock_mempool::LocalMockMempool, upstream_proxy};
 use admission_control_proto::proto::admission_control::SubmitTransactionRequest;
 use channel;
+use channel::{libra_channel, message_queues::QueueStyle};
 use futures::executor::block_on;
 use libra_config::config::{AdmissionControlConfig, RoleType};
 use libra_proptest_helpers::ValueGenerator;
 use libra_prost_ext::MessageExt;
 use libra_types::transaction::SignedTransaction;
+use network::peer_manager::PeerManagerRequestSender;
 use network::validator_network::AdmissionControlNetworkSender;
 use proptest;
 use prost::Message;
@@ -48,8 +50,9 @@ pub fn fuzzer(data: &[u8]) {
         }
     };
 
-    let (network_reqs_tx, _) = channel::new_test(8);
-    let network_sender = AdmissionControlNetworkSender::new(network_reqs_tx);
+    let (network_reqs_tx, _) = libra_channel::new(QueueStyle::FIFO, 8, None);
+    let network_sender =
+        AdmissionControlNetworkSender::new(PeerManagerRequestSender::new(network_reqs_tx));
 
     let upstream_proxy_data = upstream_proxy::UpstreamProxyData::new(
         AdmissionControlConfig::default(),
