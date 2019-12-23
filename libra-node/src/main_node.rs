@@ -101,7 +101,8 @@ pub fn setup_network(config: &mut NetworkConfig, role: RoleType) -> (Runtime, Ne
     );
     network_builder
         .permissioned(config.is_permissioned)
-        .advertised_address(config.advertised_address.clone());
+        .advertised_address(config.advertised_address.clone())
+        .add_connection_monitoring();
     if config.is_permissioned {
         // If the node wants to run in permissioned mode, it should also have authentication and
         // encryption.
@@ -137,7 +138,8 @@ pub fn setup_network(config: &mut NetworkConfig, role: RoleType) -> (Runtime, Ne
             .seed_peers(seed_peers)
             .trusted_peers(trusted_peers)
             .signing_keys((signing_private, signing_public))
-            .discovery_interval_ms(config.discovery_interval_ms);
+            .discovery_interval_ms(config.discovery_interval_ms)
+            .add_discovery();
     } else if config.enable_encryption_and_authentication {
         let identity_private = config
             .network_keypairs
@@ -192,7 +194,6 @@ pub fn setup_environment(node_config: &mut NodeConfig) -> LibraHandle {
         let (ac_sender, ac_events) =
             validator_network::admission_control::add_to_network(&mut network_builder);
         ac_network_events.push(ac_events);
-
         validator_network_provider = Some((network.peer_id, runtime, network_builder));
         ac_network_sender = Some(ac_sender);
     }
@@ -203,7 +204,6 @@ pub fn setup_environment(node_config: &mut NodeConfig) -> LibraHandle {
         state_sync_network_handles.push(validator_network::state_synchronizer::add_to_network(
             &mut network_builder,
         ));
-
         let (ac_sender, ac_events) =
             validator_network::admission_control::add_to_network(&mut network_builder);
         ac_network_events.push(ac_events);

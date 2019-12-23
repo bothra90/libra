@@ -5,22 +5,22 @@
 
 use crate::{
     counters,
-    interface::NetworkRequest,
+    peer_manager::PeerManagerRequestSender,
     protocols::rpc::error::RpcError,
-    validator_network::{network_builder::NetworkBuilder, NetworkEvents, NetworkSender},
+    validator_network::network_builder::NetworkBuilder,
+    validator_network::{NetworkEvents, NetworkSender},
     ProtocolId,
 };
 use admission_control_proto::proto::admission_control::{
     admission_control_msg::Message as AdmissionControlMsg_oneof, AdmissionControlMsg,
     SubmitTransactionRequest, SubmitTransactionResponse,
 };
-use channel;
+use channel::message_queues::QueueStyle;
 use libra_types::PeerId;
 use std::time::Duration;
 
 /// Protocol id for admission control RPC calls
 pub const ADMISSION_CONTROL_RPC_PROTOCOL: &[u8] = b"/libra/rpc/0.1.0/admission_control/0.1.0";
-pub const ADMISSION_CONTROL_INBOUND_MSG_TIMEOUT_MS: u64 = 10 * 1000; // 10 seconds
 
 /// The interface from Network to Admission Control layer.
 ///
@@ -33,7 +33,7 @@ pub type AdmissionControlNetworkEvents = NetworkEvents<AdmissionControlMsg>;
 /// The interface from Admission Control to Network layer.
 ///
 /// This is a thin wrapper around a `NetworkSender<AdmissionControlMsg>`, which
-/// is in turn a thin wrapper around a `channel::Sender<NetworkRequest>`, so it
+/// is in turn a thin wrapper around a `channel::Sender<PeerManagerRequest>`, so it
 /// is easy to clone and send off to a separate task. For example, the rpc
 /// requests return Futures that encapsulate the whole flow, from sending the
 /// request to remote, to finally receiving the response and deserializing. It
@@ -50,8 +50,8 @@ pub fn add_to_network(
     let (sender, receiver) = network.add_protocol_handler(
         vec![ProtocolId::from_static(ADMISSION_CONTROL_RPC_PROTOCOL)],
         vec![],
-        &counters::PENDING_ADMISSION_CONTROL_NETWORK_EVENTS,
-        Duration::from_millis(ADMISSION_CONTROL_INBOUND_MSG_TIMEOUT_MS),
+        QueueStyle::FIFO,
+        Some(&counters::PENDING_ADMISSION_CONTROL_NETWORK_EVENTS),
     );
     (
         AdmissionControlNetworkSender::new(sender),
@@ -60,7 +60,7 @@ pub fn add_to_network(
 }
 
 impl AdmissionControlNetworkSender {
-    pub fn new(inner: channel::Sender<NetworkRequest>) -> Self {
+    pub fn new(inner: PeerManagerRequestSender) -> Self {
         Self {
             inner: NetworkSender::new(inner),
         }
@@ -102,18 +102,20 @@ impl AdmissionControlNetworkSender {
 mod tests {
     use super::*;
     use crate::{
-        interface::NetworkNotification, protocols::rpc::InboundRpcRequest, utils::MessageExt,
+        peer_manager::{PeerManagerNotification, PeerManagerRequest, PeerManagerRequestSender},
+        protocols::rpc::InboundRpcRequest,
+        utils::MessageExt,
         validator_network::Event,
     };
-    use futures::{
-        channel::oneshot, executor::block_on, future::try_join, sink::SinkExt, stream::StreamExt,
-    };
+    use channel::libra_channel;
+    use futures::{channel::oneshot, executor::block_on, future::try_join, stream::StreamExt};
     use prost::Message as _;
 
     // `AdmissionControlNetworkEvents` should deserialize inbound RPC requests
     #[test]
     fn test_admission_control_inbound_rpc() {
-        let (mut admission_control_tx, admission_control_rx) = channel::new_test(8);
+        let (mut admission_control_tx, admission_control_rx) =
+            libra_channel::new(QueueStyle::FIFO, 8, None);
         let mut stream = AdmissionControlNetworkEvents::new(admission_control_rx);
 
         // build rpc request
@@ -133,8 +135,16 @@ mod tests {
 
         // mock receiving rpc request
         let peer_id = PeerId::random();
-        let event = NetworkNotification::RecvRpc(peer_id, rpc_req);
-        block_on(admission_control_tx.send(event)).unwrap();
+        let event = PeerManagerNotification::RecvRpc(peer_id, rpc_req);
+        admission_control_tx
+            .push(
+                (
+                    peer_id,
+                    ProtocolId::from_static(ADMISSION_CONTROL_RPC_PROTOCOL),
+                ),
+                event,
+            )
+            .unwrap();
 
         // request should be properly deserialized
         let (res_tx, _) = oneshot::channel();
@@ -143,12 +153,13 @@ mod tests {
         assert_eq!(event, expected_event);
     }
 
-    // When AC sends an rpc request, network should get a `NetworkRequest::SendRpc`
+    // When AC sends an rpc request, network should get a `PeerManagerRequest::SendRpc`
     // with the serialized request.
     #[test]
     fn test_admission_control_outbound_rpc() {
-        let (network_reqs_tx, mut network_reqs_rx) = channel::new_test(8);
-        let mut sender = AdmissionControlNetworkSender::new(network_reqs_tx);
+        let (network_reqs_tx, mut network_reqs_rx) = libra_channel::new(QueueStyle::FIFO, 8, None);
+        let mut sender =
+            AdmissionControlNetworkSender::new(PeerManagerRequestSender::new(network_reqs_tx));
 
         // make submit_transaction_request rpc request
         let peer_id = PeerId::random();
@@ -168,7 +179,7 @@ mod tests {
         // the future response
         let f_recv = async move {
             match network_reqs_rx.next().await.unwrap() {
-                NetworkRequest::SendRpc(recv_peer_id, req) => {
+                PeerManagerRequest::SendRpc(recv_peer_id, req) => {
                     assert_eq!(recv_peer_id, peer_id);
                     assert_eq!(req.protocol.as_ref(), ADMISSION_CONTROL_RPC_PROTOCOL);
 
