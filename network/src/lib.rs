@@ -14,6 +14,7 @@ pub use common::NetworkPublicKeys;
 pub use interface::NetworkProvider;
 
 pub mod interface;
+pub mod peer_manager;
 pub mod proto;
 pub mod protocols;
 pub mod validator_network;
@@ -22,7 +23,7 @@ mod common;
 mod connectivity_manager;
 mod counters;
 mod error;
-mod peer_manager;
+mod peer;
 mod sink;
 mod transport;
 mod utils;

@@ -154,7 +154,6 @@ async fn sync_with_peers<'a>(
                 // module has unexpectedly crashed or shutdown.
                 network_sender
                     .send_to(peer_id, msg)
-                    .await
                     .expect("[shared mempool] failed to direct-send mempool sync message");
             }
 
