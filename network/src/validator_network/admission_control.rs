@@ -4,9 +4,10 @@
 //! Interface between Admission Control and Network layers.
 
 use crate::{
+    counters,
     interface::NetworkRequest,
     protocols::rpc::error::RpcError,
-    validator_network::{NetworkEvents, NetworkSender},
+    validator_network::{network_builder::NetworkBuilder, NetworkEvents, NetworkSender},
     ProtocolId,
 };
 use admission_control_proto::proto::admission_control::{
@@ -19,6 +20,7 @@ use std::time::Duration;
 
 /// Protocol id for admission control RPC calls
 pub const ADMISSION_CONTROL_RPC_PROTOCOL: &[u8] = b"/libra/rpc/0.1.0/admission_control/0.1.0";
+pub const ADMISSION_CONTROL_INBOUND_MSG_TIMEOUT_MS: u64 = 10 * 1000; // 10 seconds
 
 /// The interface from Network to Admission Control layer.
 ///
@@ -40,6 +42,21 @@ pub type AdmissionControlNetworkEvents = NetworkEvents<AdmissionControlMsg>;
 #[derive(Clone)]
 pub struct AdmissionControlNetworkSender {
     inner: NetworkSender<AdmissionControlMsg>,
+}
+
+pub fn add_to_network(
+    network: &mut NetworkBuilder,
+) -> (AdmissionControlNetworkSender, AdmissionControlNetworkEvents) {
+    let (sender, receiver) = network.add_protocol_handler(
+        vec![ProtocolId::from_static(ADMISSION_CONTROL_RPC_PROTOCOL)],
+        vec![],
+        &counters::PENDING_ADMISSION_CONTROL_NETWORK_EVENTS,
+        Duration::from_millis(ADMISSION_CONTROL_INBOUND_MSG_TIMEOUT_MS),
+    );
+    (
+        AdmissionControlNetworkSender::new(sender),
+        AdmissionControlNetworkEvents::new(receiver),
+    )
 }
 
 impl AdmissionControlNetworkSender {

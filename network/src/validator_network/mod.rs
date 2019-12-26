@@ -25,20 +25,18 @@ use pin_project::pin_project;
 use prost::Message;
 use std::{collections::HashMap, default::Default, marker::PhantomData, pin::Pin, time::Duration};
 
+pub mod admission_control;
+pub mod consensus;
+pub mod discovery;
+pub mod health_checker;
+pub mod mempool;
 pub mod network_builder;
+pub mod state_synchronizer;
 
-mod admission_control;
-mod consensus;
-mod discovery;
-mod health_checker;
-mod mempool;
-mod state_synchronizer;
-
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 
 // Public re-exports
-pub use crate::interface::LibraNetworkProvider;
 pub use admission_control::{
     AdmissionControlNetworkEvents, AdmissionControlNetworkSender, ADMISSION_CONTROL_RPC_PROTOCOL,
 };
